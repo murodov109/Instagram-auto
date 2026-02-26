@@ -3,21 +3,25 @@ import json
 import time
 import threading
 from dotenv import load_dotenv
-from telegram import Update
-from telegram.ext import Application, CommandHandler, MessageHandler, filters, ContextTypes
-from instagrapi import Client
+from pyrogram import Client, filters
+from pyrogram.types import Message
+from instagrapi import Client as IgClient
 
 load_dotenv()
 
-TG_TOKEN = os.getenv("8234507593:AAGeXUJlxXuqc5hmhyslV9gmpijlo3cv3PM")
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
+API_ID = int(os.getenv("API_ID", "0"))
+API_HASH = os.getenv("API_HASH")
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
 VIDEO_PATH = "video.mp4"
-SESSION_FILE = "session.json"
+SESSION_FILE = "ig_session.json"
 CONFIG_FILE = "config.json"
 
 posting_active = False
 ig_client = None
+
+app = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 
 def load_config():
@@ -32,17 +36,20 @@ def load_config():
         "caption": ""
     }
 
+
 def save_config(cfg):
     with open(CONFIG_FILE, "w") as f:
         json.dump(cfg, f)
 
+
 def ig_login(username, password):
-    cl = Client()
+    cl = IgClient()
     if os.path.exists(SESSION_FILE):
         cl.load_settings(SESSION_FILE)
     cl.login(username, password)
     cl.dump_settings(SESSION_FILE)
     return cl
+
 
 def posting_loop():
     global posting_active, ig_client
@@ -80,40 +87,40 @@ def posting_loop():
             time.sleep(1)
 
 
-def admin_only(func):
-    async def wrapper(update: Update, ctx, *args, **kwargs):
-        if update.effective_user.id != ADMIN_ID:
-            await update.message.reply_text("Ruxsat yoq. Murojaat: @murodov_ads")
-            return
-        return await func(update, ctx, *args, **kwargs)
-    return wrapper
+def admin_filter(_, __, msg: Message):
+    return msg.from_user and msg.from_user.id == ADMIN_ID
 
 
-@admin_only
-async def start(update: Update, ctx):
-    await update.message.reply_text(
+admin = filters.create(admin_filter)
+
+
+@app.on_message(filters.command("start") & admin)
+async def cmd_start(client, msg: Message):
+    await msg.reply(
         "Admin panel:\n\n"
         "/status — holat\n"
-        "/start_post — boshlash\n"
+        "/start_post — postlashni boshlash\n"
         "/stop_post — toxtatish\n"
-        "/set_interval 3600 — vaqt (soniya)\n"
+        "/set_interval 3600 — interval (soniya)\n"
         "/set_account login parol — akkaunt\n"
         "/set_caption matn — post matni\n"
         "/reset_counter — hisobni 1 ga qaytarish\n\n"
         "Video yuboring — video almashadi"
     )
 
-async def start_unknown(update: Update, ctx):
-    if update.effective_user.id != ADMIN_ID:
-        await update.message.reply_text("Bu bot shaxsiy. Murojaat: @murodov_ads")
 
-@admin_only
-async def status(update: Update, ctx):
+@app.on_message(filters.command("start") & ~admin)
+async def cmd_start_unknown(client, msg: Message):
+    await msg.reply("Bu bot shaxsiy. Murojaat: @murodov_ads")
+
+
+@app.on_message(filters.command("status") & admin)
+async def cmd_status(client, msg: Message):
     cfg = load_config()
     state = "Aktiv" if posting_active else "Toxtatilgan"
     mins = cfg.get("interval", 3600) // 60
     video = "bor" if os.path.exists(VIDEO_PATH) else "yoq"
-    await update.message.reply_text(
+    await msg.reply(
         f"Holat: {state}\n"
         f"Akkaunt: @{cfg.get('username', '-')}\n"
         f"Interval: {mins} daqiqa\n"
@@ -121,87 +128,85 @@ async def status(update: Update, ctx):
         f"Video: {video}"
     )
 
-@admin_only
-async def start_post(update: Update, ctx):
+
+@app.on_message(filters.command("start_post") & admin)
+async def cmd_start_post(client, msg: Message):
     global posting_active
     if posting_active:
-        await update.message.reply_text("Allaqachon ishlayapti.")
+        await msg.reply("Allaqachon ishlayapti.")
         return
     if not os.path.exists(VIDEO_PATH):
-        await update.message.reply_text("Avval video yuboring.")
+        await msg.reply("Avval video yuboring.")
         return
     posting_active = True
     threading.Thread(target=posting_loop, daemon=True).start()
-    await update.message.reply_text("Postlash boshlandi.")
+    await msg.reply("Postlash boshlandi.")
 
-@admin_only
-async def stop_post(update: Update, ctx):
+
+@app.on_message(filters.command("stop_post") & admin)
+async def cmd_stop_post(client, msg: Message):
     global posting_active
     posting_active = False
-    await update.message.reply_text("Postlash toxtatildi.")
+    await msg.reply("Postlash toxtatildi.")
 
-@admin_only
-async def set_interval(update: Update, ctx):
+
+@app.on_message(filters.command("set_interval") & admin)
+async def cmd_set_interval(client, msg: Message):
     try:
-        seconds = int(ctx.args[0])
+        seconds = int(msg.command[1])
         cfg = load_config()
         cfg["interval"] = seconds
         save_config(cfg)
-        await update.message.reply_text(f"Interval {seconds // 60} daqiqa qilindi.")
+        await msg.reply(f"Interval {seconds // 60} daqiqa qilindi.")
     except:
-        await update.message.reply_text("Ishlatish: /set_interval 3600")
+        await msg.reply("Ishlatish: /set_interval 3600")
 
-@admin_only
-async def set_account(update: Update, ctx):
+
+@app.on_message(filters.command("set_account") & admin)
+async def cmd_set_account(client, msg: Message):
     try:
-        username, password = ctx.args[0], ctx.args[1]
+        username = msg.command[1]
+        password = msg.command[2]
         cfg = load_config()
         cfg["username"] = username
         cfg["password"] = password
         save_config(cfg)
         if os.path.exists(SESSION_FILE):
             os.remove(SESSION_FILE)
-        await update.message.reply_text(f"Akkaunt ozgartirildi: @{username}")
+        await msg.reply(f"Akkaunt ozgartirildi: @{username}")
     except:
-        await update.message.reply_text("Ishlatish: /set_account login parol")
+        await msg.reply("Ishlatish: /set_account login parol")
 
-@admin_only
-async def set_caption(update: Update, ctx):
-    caption = " ".join(ctx.args)
+
+@app.on_message(filters.command("set_caption") & admin)
+async def cmd_set_caption(client, msg: Message):
+    caption = " ".join(msg.command[1:])
     cfg = load_config()
     cfg["caption"] = caption
     save_config(cfg)
-    await update.message.reply_text(f"Matn saqlandi.")
+    await msg.reply("Matn saqlandi.")
 
-@admin_only
-async def reset_counter(update: Update, ctx):
+
+@app.on_message(filters.command("reset_counter") & admin)
+async def cmd_reset_counter(client, msg: Message):
     cfg = load_config()
     cfg["counter"] = 1
     save_config(cfg)
-    await update.message.reply_text("Hisoblagich 1 ga qaytarildi.")
-
-@admin_only
-async def receive_video(update: Update, ctx):
-    await update.message.reply_text("Video yuklanmoqda...")
-    file = await update.message.video.get_file()
-    await file.download_to_drive(VIDEO_PATH)
-    await update.message.reply_text("Video saqlandi.")
+    await msg.reply("Hisoblagich 1 ga qaytarildi.")
 
 
-def main():
-    app = Application.builder().token(TG_TOKEN).build()
-    app.add_handler(CommandHandler("start", start))
-    app.add_handler(CommandHandler("status", status))
-    app.add_handler(CommandHandler("start_post", start_post))
-    app.add_handler(CommandHandler("stop_post", stop_post))
-    app.add_handler(CommandHandler("set_interval", set_interval))
-    app.add_handler(CommandHandler("set_account", set_account))
-    app.add_handler(CommandHandler("set_caption", set_caption))
-    app.add_handler(CommandHandler("reset_counter", reset_counter))
-    app.add_handler(MessageHandler(filters.VIDEO, receive_video))
-    app.add_handler(MessageHandler(filters.ALL, start_unknown))
-    print("Bot ishga tushdi")
-    app.run_polling()
+@app.on_message(filters.video & admin)
+async def receive_video(client, msg: Message):
+    await msg.reply("Video yuklanmoqda...")
+    await msg.download(VIDEO_PATH)
+    await msg.reply("Video saqlandi.")
+
+
+@app.on_message(~admin)
+async def unknown_user(client, msg: Message):
+    await msg.reply("Bu bot shaxsiy. Murojaat: @murodov_ads")
+
 
 if __name__ == "__main__":
-    main()
+    print("Bot ishga tushdi")
+    app.run()
