@@ -9,8 +9,8 @@ from instagrapi import Client
 
 load_dotenv()
 
-TG_TOKEN = os.getenv("TG_TOKEN")
-ADMIN_ID = int(os.getenv("ADMIN_ID"))
+TG_TOKEN = os.getenv("8234507593:AAGeXUJlxXuqc5hmhyslV9gmpijlo3cv3PM")
+ADMIN_ID = int(os.getenv("7617397626"))
 
 VIDEO_PATH = "video.mp4"
 SESSION_FILE = "session.json"
