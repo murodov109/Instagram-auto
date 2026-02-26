@@ -14,7 +14,7 @@ API_HASH = os.getenv("API_HASH")
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 ADMIN_ID = int(os.getenv("ADMIN_ID", "0"))
 
-VIDEO_PATH = "video.mp4"
+VIDEO_PATH = os.path.abspath("video.mp4")
 SESSION_FILE = "ig_session.json"
 CONFIG_FILE = "config.json"
 
@@ -72,7 +72,7 @@ def posting_loop():
                 cfg["counter"] = n + 1
                 save_config(cfg)
             else:
-                print("Video topilmadi")
+                print(f"Video topilmadi: {VIDEO_PATH}")
         except Exception as e:
             print(f"Post xato: {e}")
             try:
@@ -136,7 +136,7 @@ async def cmd_start_post(client, msg: Message):
         await msg.reply("Allaqachon ishlayapti.")
         return
     if not os.path.exists(VIDEO_PATH):
-        await msg.reply("Avval video yuboring.")
+        await msg.reply(f"Avval video yuboring. Yo'l: {VIDEO_PATH}")
         return
     posting_active = True
     threading.Thread(target=posting_loop, daemon=True).start()
@@ -198,8 +198,12 @@ async def cmd_reset_counter(client, msg: Message):
 @app.on_message(filters.video & admin)
 async def receive_video(client, msg: Message):
     await msg.reply("Video yuklanmoqda...")
-    await msg.download(VIDEO_PATH)
-    await msg.reply("Video saqlandi.")
+    downloaded = await msg.download()
+    if downloaded:
+        os.replace(downloaded, VIDEO_PATH)
+        await msg.reply(f"Video saqlandi. Yo'l: {VIDEO_PATH}")
+    else:
+        await msg.reply("Xato: video saqlanmadi.")
 
 
 @app.on_message(~admin)
@@ -210,3 +214,4 @@ async def unknown_user(client, msg: Message):
 if __name__ == "__main__":
     print("Bot ishga tushdi")
     app.run()
+
