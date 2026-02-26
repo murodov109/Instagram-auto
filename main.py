@@ -1,6 +1,7 @@
 import os
 import json
 import time
+import asyncio
 import threading
 from dotenv import load_dotenv
 from pyrogram import Client, filters
@@ -20,6 +21,7 @@ CONFIG_FILE = "config.json"
 
 posting_active = False
 ig_client = None
+loop = None
 
 app = Client("bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
@@ -42,10 +44,17 @@ def save_config(cfg):
         json.dump(cfg, f)
 
 
+def send_msg(text):
+    if loop:
+        asyncio.run_coroutine_threadsafe(
+            app.send_message(ADMIN_ID, text), loop
+        )
+
+
 def ig_login(username, password):
-    cl = IgClient()
     if os.path.exists(SESSION_FILE):
-        cl.load_settings(SESSION_FILE)
+        os.remove(SESSION_FILE)
+    cl = IgClient()
     cl.login(username, password)
     cl.dump_settings(SESSION_FILE)
     return cl
@@ -54,10 +63,13 @@ def ig_login(username, password):
 def posting_loop():
     global posting_active, ig_client
     cfg = load_config()
+
+    send_msg("Instagram-ga kirilmoqda...")
     try:
         ig_client = ig_login(cfg["username"], cfg["password"])
+        send_msg(f"Login muvaffaqiyatli: @{cfg['username']}")
     except Exception as e:
-        print(f"Login xato: {e}")
+        send_msg(f"Login xato: {e}")
         posting_active = False
         return
 
@@ -67,24 +79,27 @@ def posting_loop():
         caption = f"{cfg['caption']}\n\n#{n}".strip()
         try:
             if os.path.exists(VIDEO_PATH):
+                send_msg(f"Post #{n} yuklanmoqda...")
                 ig_client.video_upload(VIDEO_PATH, caption=caption)
-                print(f"Post #{n} qoyildi")
                 cfg["counter"] = n + 1
                 save_config(cfg)
+                send_msg(f"Post #{n} muvaffaqiyatli qoyildi!")
             else:
-                print(f"Video topilmadi: {VIDEO_PATH}")
+                send_msg(f"Video topilmadi: {VIDEO_PATH}")
         except Exception as e:
-            print(f"Post xato: {e}")
+            send_msg(f"Post xato: {e}")
             try:
                 ig_client = ig_login(cfg["username"], cfg["password"])
-            except:
-                pass
+            except Exception as e2:
+                send_msg(f"Qayta login xato: {e2}")
 
         interval = cfg.get("interval", 3600)
         for _ in range(interval):
             if not posting_active:
                 break
             time.sleep(1)
+
+    send_msg("Postlash toxtatildi.")
 
 
 def admin_filter(_, __, msg: Message):
@@ -131,13 +146,14 @@ async def cmd_status(client, msg: Message):
 
 @app.on_message(filters.command("start_post") & admin)
 async def cmd_start_post(client, msg: Message):
-    global posting_active
+    global posting_active, loop
     if posting_active:
         await msg.reply("Allaqachon ishlayapti.")
         return
     if not os.path.exists(VIDEO_PATH):
-        await msg.reply(f"Avval video yuboring. Yo'l: {VIDEO_PATH}")
+        await msg.reply(f"Avval video yuboring.")
         return
+    loop = asyncio.get_event_loop()
     posting_active = True
     threading.Thread(target=posting_loop, daemon=True).start()
     await msg.reply("Postlash boshlandi.")
@@ -147,7 +163,7 @@ async def cmd_start_post(client, msg: Message):
 async def cmd_stop_post(client, msg: Message):
     global posting_active
     posting_active = False
-    await msg.reply("Postlash toxtatildi.")
+    await msg.reply("Toxtatilmoqda...")
 
 
 @app.on_message(filters.command("set_interval") & admin)
@@ -201,7 +217,7 @@ async def receive_video(client, msg: Message):
     downloaded = await msg.download()
     if downloaded:
         os.replace(downloaded, VIDEO_PATH)
-        await msg.reply(f"Video saqlandi. Yo'l: {VIDEO_PATH}")
+        await msg.reply(f"Video saqlandi.")
     else:
         await msg.reply("Xato: video saqlanmadi.")
 
@@ -214,4 +230,3 @@ async def unknown_user(client, msg: Message):
 if __name__ == "__main__":
     print("Bot ishga tushdi")
     app.run()
-
