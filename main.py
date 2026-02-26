@@ -9,7 +9,7 @@ from instagrapi import Client
 
 load_dotenv()
 
-TG_TOKEN = os.getenv("TG_TOKEN")
+TG_TOKEN = os.getenv("8234507593:AAGeXUJlxXuqc5hmhyslV9gmpijlo3cv3PM")
 ADMIN_ID = int(os.getenv("ADMIN_ID"))
 
 VIDEO_PATH = "video.mp4"
